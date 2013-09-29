@@ -8,9 +8,28 @@ import os
 import time
 import signal
 import sys
+from pprint import pprint
 
 def exit_handler(signal, frame):
     sys.exit(0)
+
+def health(myteam, theirteam, final):
+    if (final):
+        if (myteam>theirteam):
+            return 'w'
+        if (myteam==theirteam):
+            return 't'
+        return 'l'        
+    if (myteam==theirteam):
+        return 'c'
+    if (myteam-theirteam>9):
+        return 'e'
+    if (myteam-theirteam>0):
+        return 'd'
+    if (theirteam-myteam>9):
+        return 'a'
+    if (theirteam-myteam>0):
+        return 'b'
 
 signal.signal(signal.SIGINT, exit_handler)
 signal.signal(signal.SIGTERM, exit_handler)
@@ -18,36 +37,23 @@ signal.signal(signal.SIGTERM, exit_handler)
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
-        description='Script to fetch jenkins job status and push to serial port'
-    )
-    
-    parser.add_argument(
-        '--host',
-        help='jenkins hostname',
-        type=str,
-        default="localhost"
-    )
-
-    parser.add_argument(
-        '--port',
-        help='jenkins port',
-        type=int,
-        default="8080"
-    )
-
-    parser.add_argument(
-        '--job',
-        help='jenkins job name',
-        type=str,
-        required=True
+        description='Script to fetch sports scores and push to serial port'
     )
 
     parser.add_argument(
         '-d', '--device',
         help='device name',
         type=str,
-        required=True
+        default="/dev/tty.usbserial-AD0265VB"
     )
+
+    parser.add_argument(
+        '-t', '--team',
+        help='team name',
+        type=str,
+        default="OAK"
+    )
+
 
     parser.add_argument(
         '-v', '--verbose',
@@ -75,12 +81,7 @@ if __name__ == '__main__':
         level = logging.DEBUG if args.verbose else logging.ERROR
     )
 
-    API_URL = 'http://{host}:{port}/job/{job}/lastBuild/api/json'.format(host = args.host, port = args.port, job = args.job)
-    
-    RESULT = {
-        'SUCCESS': 'S',
-        'FAILURE': 'F'    
-    }
+    API_URL = "http://query.yahooapis.com/v1/public/yql?q=select%20*%20from%20xml%20where%20url%3D%22http%3A%2F%2Fwww.nfl.com%2Fliveupdate%2Fscorestrip%2Fss.xml%22%20%20and%20itemPath%3D%22%2F%2Fg%5B%40h%3D'" + args.team + "'%20or%20%40v%3D'" + args.team + "'%5D%5B1%5D%22&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys&callback="
 
     ser = serial.Serial(
         port = args.device,
@@ -93,19 +94,24 @@ if __name__ == '__main__':
 
     state = False
     while ( True ):
+        scores = {}
+        isfinal = False
+        request = urllib2.Request( API_URL )
+        response = urllib2.urlopen( request )
+        data = json.loads( response.read() )
 
-        try:
-            request = urllib2.Request( API_URL )
-            response = urllib2.urlopen( request )
-            data = json.loads( response.read() )
+        results = data[ 'query' ]['results']
+        scores[results['g']['h']] = int(results['g']['hs'])
+        scores[results['g']['v']] = int(results['g']['vs'])
+        if (results['g']['q'] == 'F'):
+            isfinal = True
+        else:
+            isfinal = False
+        pprint(scores)
 
-            state = RESULT[ data['result'] ]
-        except:
-            state = False
 
-        if state:
-            logging.debug( 'Sending to {device}: {char}'.format( device = args.device, char = state ) )
-            ser.write( '{char}'.format( char = state ) )
+        logging.debug( 'Sending to {device}: {char}'.format( device = args.device, char = state ) )
+        ser.write( health (scores['OAK'], scores['WAS'], isfinal) )
 
         if ( args.once ):
             break
